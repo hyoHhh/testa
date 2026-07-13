@@ -1,4 +1,4 @@
-name: Build GKI 5.10 Kernel
+name: Build GKI Kernel
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       kernel_branch:
         description: 'AOSP 内核分支'
         required: true
-        default: 'android13-5.10'   # 修改为有效的分支
+        default: 'common-android13-5.15'   # 推荐使用此分支，已验证包含 build 项目
       build_config:
         description: '构建配置文件'
         required: true
@@ -40,37 +40,43 @@ jobs:
 
       - name: Sync kernel source
         run: |
-          repo init -u https://android.googlesource.com/kernel/manifest -b ${{ github.event.inputs.kernel_branch }} --depth=1
+          repo init -u https://android.googlesource.com/kernel/manifest \
+            -b ${{ github.event.inputs.kernel_branch }} --depth=1
           repo sync -c -j$(nproc)
 
-      # 调试：列出目录结构（可选）
+      # 调试：检查目录结构（可选，构建成功后可以注释掉）
       - name: Debug directory structure
         run: |
-          echo "Root directory:"
+          echo "=== Root ==="
           ls -la
-          echo "Common directory:"
-          ls -la common/ || echo "common/ not found"
-          echo "Build script:"
-          ls -la build/build.sh || echo "build/build.sh not found"
+          echo "=== build/ ==="
+          ls -la build/ || echo "build/ NOT FOUND"
+          echo "=== common/ ==="
+          ls -la common/ || echo "common/ NOT FOUND"
+
+      # 如果某个分支未自动包含 build 项目，则手动获取（健壮性补充）
+      - name: Fetch build tools if missing
+        run: |
+          if [ ! -d build ]; then
+            echo "build/ missing, cloning kernel/build..."
+            git clone https://android.googlesource.com/kernel/build build
+            cd build
+            # 尝试切换到与内核相同的分支，失败则保持默认
+            git checkout ${{ github.event.inputs.kernel_branch }} 2>/dev/null || true
+            cd ..
+          fi
 
       - name: Build kernel
         run: |
-          cd common
-          # 如果 build/build.sh 不存在，尝试使用根目录的 build.sh
-          if [ -f build/build.sh ]; then
-            BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
-          else
-            # 某些分支可能直接在 common 下有 build.sh，但这里保留错误提示
-            echo "build/build.sh not found, check directory structure"
-            exit 1
-          fi
+          # 注意：在根目录执行，不需要 cd common
+          BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gki-kernel-${{ github.event.inputs.kernel_branch }}
           path: |
-            out/android13-5.10/dist/Image
-            out/android13-5.10/dist/Image.lz4
-            out/android13-5.10/dist/*.ko
-            out/android13-5.10/dist/vmlinux
+            out/android13-5.15/dist/Image
+            out/android13-5.15/dist/Image.lz4
+            out/android13-5.15/dist/*.ko
+            out/android13-5.15/dist/vmlinux
