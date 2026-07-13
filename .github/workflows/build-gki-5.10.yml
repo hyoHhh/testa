@@ -1,27 +1,22 @@
 name: Build GKI 5.10 Kernel
 
 on:
-  # 允许从 GitHub Actions 界面手动触发工作流
   workflow_dispatch:
     inputs:
       kernel_branch:
-        description: 'AOSP 内核分支 (例如: android12-5.10, android13-5.10)'
+        description: 'AOSP 内核分支'
         required: true
-        default: 'android12-5.10'
+        default: 'android13-5.10'   # 修改为有效的分支
       build_config:
-        description: '构建配置文件 (例如: gki_defconfig, gki_dist)'
+        description: '构建配置文件'
         required: true
         default: 'gki_defconfig'
 
 jobs:
   build:
-    name: Build GKI Kernel
-    # 使用 Ubuntu 22.04 作为构建环境，这是 GKI 构建的常用选择
     runs-on: ubuntu-22.04
 
     steps:
-      # Step 1: 最大化构建可用空间
-      # GKI 内核源码和编译产物较大，此步骤可清理 GitHub 运行器上不必要的文件以释放空间
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -32,47 +27,50 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
 
-      # Step 2: 安装必要的依赖
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache make flex bison bc \
-            libssl-dev device-tree-compiler python3 python3-pip
-          # 安装 repo 工具，用于拉取 AOSP 内核源码
-          sudo apt-get install -y repo
+            libssl-dev device-tree-compiler python3 python3-pip repo
 
-      # Step 3: 配置 Git
       - name: Configure Git
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      # Step 4: 拉取 Android 通用内核 (ACK) 源码
-      # 此步骤使用 repo 工具根据指定的分支（如 android12-5.10）同步内核源码[reference:6]
       - name: Sync kernel source
         run: |
-          # 初始化并同步指定分支的通用内核
           repo init -u https://android.googlesource.com/kernel/manifest -b ${{ github.event.inputs.kernel_branch }} --depth=1
           repo sync -c -j$(nproc)
 
-      # Step 5: 设置构建环境并编译内核
-      # 使用 AOSP 提供的 build.sh 脚本进行编译。这是官方推荐的 GKI 构建方式[reference:7]
+      # 调试：列出目录结构（可选）
+      - name: Debug directory structure
+        run: |
+          echo "Root directory:"
+          ls -la
+          echo "Common directory:"
+          ls -la common/ || echo "common/ not found"
+          echo "Build script:"
+          ls -la build/build.sh || echo "build/build.sh not found"
+
       - name: Build kernel
         run: |
-          # 进入内核源码根目录
           cd common
-          # 使用 build.sh 构建内核
-          # BUILD_CONFIG 指定构建配置文件，对于 5.10 内核的 aarch64 架构，通常是 common/build.config.gki.aarch64[reference:8]
-          BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+          # 如果 build/build.sh 不存在，尝试使用根目录的 build.sh
+          if [ -f build/build.sh ]; then
+            BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+          else
+            # 某些分支可能直接在 common 下有 build.sh，但这里保留错误提示
+            echo "build/build.sh not found, check directory structure"
+            exit 1
+          fi
 
-      # Step 6: 上传编译产物 (Artifacts)
-      # 将编译好的内核镜像（Image）和模块打包并上传，方便后续下载使用
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gki-kernel-${{ github.event.inputs.kernel_branch }}
           path: |
-            out/android12-5.10/dist/Image
-            out/android12-5.10/dist/Image.lz4
-            out/android12-5.10/dist/*.ko
-            out/android12-5.10/dist/vmlinux
+            out/android13-5.10/dist/Image
+            out/android13-5.10/dist/Image.lz4
+            out/android13-5.10/dist/*.ko
+            out/android13-5.10/dist/vmlinux
